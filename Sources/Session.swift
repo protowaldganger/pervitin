@@ -1,0 +1,235 @@
+//
+//  Session.swift
+//  Pervitin
+//
+
+import AppKit
+import IOKit.pwr_mgt
+import ServiceManagement
+
+// Keeps the Mac awake by holding macOS power assertions, the same public
+// mechanism `caffeinate` uses. Nothing is written anywhere except the app's
+// own preferences, and nothing leaves the Mac.
+final class Session: NSObject, ObservableObject {
+    static let shared = Session()
+
+    @Published private(set) var isActive = false
+    // nil while active means "until stopped".
+    @Published private(set) var endDate: Date?
+
+    // How long the next session lasts: minutes from now (0 = until stopped),
+    // or a time of day when `untilEnabled` is on. Changing either while a
+    // session runs restarts it with the new length.
+    @Published var presetMinutes: Int {
+        didSet { save(presetMinutes, "presetMinutes"); restartIfActive() }
+    }
+    @Published var untilEnabled: Bool {
+        didSet { save(untilEnabled, "untilEnabled"); restartIfActive() }
+    }
+    @Published var untilTime: Date {
+        didSet { save(untilTime, "untilTime"); if untilEnabled { restartIfActive() } }
+    }
+
+    // Off: the display stays on and the screen saver stays away.
+    // On: only the system is kept awake.
+    @Published var displayMaySleep: Bool {
+        didSet { save(displayMaySleep, "displayMaySleep"); if isActive { applyAssertions() } }
+    }
+    @Published var showsTimeInMenuBar: Bool {
+        didSet { save(showsTimeInMenuBar, "showsTimeInMenuBar"); onChange?() }
+    }
+
+    var onChange: (() -> Void)?
+
+    var remaining: TimeInterval? {
+        endDate.map { max(0, $0.timeIntervalSinceNow) }
+    }
+
+    var opensAtLogin: Bool {
+        get { SMAppService.mainApp.status == .enabled }
+        set {
+            objectWillChange.send()
+            do {
+                if newValue {
+                    try SMAppService.mainApp.register()
+                } else {
+                    try SMAppService.mainApp.unregister()
+                }
+            } catch {
+                NSSound.beep()
+            }
+        }
+    }
+
+    private var systemAssertion: IOPMAssertionID = 0
+    private var displayAssertion: IOPMAssertionID = 0
+    private var activityAssertion: IOPMAssertionID = 0
+    private var endTimer: Timer?
+    private var activityTimer: Timer?
+    private var screensAreAsleep = false
+
+    private override init() {
+        let defaults = UserDefaults.standard
+        defaults.register(defaults: [
+            "presetMinutes": 60,
+            "untilEnabled": false,
+            "displayMaySleep": false,
+            "showsTimeInMenuBar": false
+        ])
+        presetMinutes = defaults.integer(forKey: "presetMinutes")
+        untilEnabled = defaults.bool(forKey: "untilEnabled")
+        untilTime = (defaults.object(forKey: "untilTime") as? Date) ?? Date().addingTimeInterval(3600)
+        displayMaySleep = defaults.bool(forKey: "displayMaySleep")
+        showsTimeInMenuBar = defaults.bool(forKey: "showsTimeInMenuBar")
+        super.init()
+
+        let workspace = NSWorkspace.shared.notificationCenter
+        workspace.addObserver(self, selector: #selector(systemDidWake), name: NSWorkspace.didWakeNotification, object: nil)
+        workspace.addObserver(self, selector: #selector(screensDidSleep), name: NSWorkspace.screensDidSleepNotification, object: nil)
+        workspace.addObserver(self, selector: #selector(screensDidWake), name: NSWorkspace.screensDidWakeNotification, object: nil)
+        let distributed = DistributedNotificationCenter.default()
+        distributed.addObserver(self, selector: #selector(screensDidSleep), name: Notification.Name("com.apple.screenIsLocked"), object: nil)
+        distributed.addObserver(self, selector: #selector(screensDidWake), name: Notification.Name("com.apple.screenIsUnlocked"), object: nil)
+    }
+
+    // MARK: Starting and stopping
+
+    func toggle() {
+        isActive ? stop() : start()
+    }
+
+    func start() {
+        endTimer?.invalidate()
+        endTimer = nil
+        endDate = plannedEnd(from: Date())
+        isActive = true
+        applyAssertions()
+        if let endDate { scheduleEnd(at: endDate) }
+        onChange?()
+    }
+
+    func stop() {
+        endTimer?.invalidate()
+        endTimer = nil
+        stopActivityPulse()
+        drop(&systemAssertion)
+        drop(&displayAssertion)
+        drop(&activityAssertion)
+        isActive = false
+        endDate = nil
+        onChange?()
+    }
+
+    private func restartIfActive() {
+        if isActive { start() }
+    }
+
+    private func plannedEnd(from now: Date) -> Date? {
+        if untilEnabled {
+            let time = Calendar.current.dateComponents([.hour, .minute], from: untilTime)
+            return Calendar.current.nextDate(after: now, matching: time, matchingPolicy: .nextTime)
+        }
+        return presetMinutes > 0 ? now.addingTimeInterval(TimeInterval(presetMinutes * 60)) : nil
+    }
+
+    private func scheduleEnd(at date: Date) {
+        let timer = Timer(fire: date, interval: 0, repeats: false) { [weak self] _ in self?.stop() }
+        timer.tolerance = 1
+        RunLoop.main.add(timer, forMode: .common)
+        endTimer = timer
+    }
+
+    // MARK: Power assertions
+
+    private func applyAssertions() {
+        hold(&systemAssertion, type: "PreventUserIdleSystemSleep")
+        if displayMaySleep {
+            drop(&displayAssertion)
+            stopActivityPulse()
+            drop(&activityAssertion)
+        } else {
+            hold(&displayAssertion, type: "PreventUserIdleDisplaySleep")
+            startActivityPulse()
+        }
+    }
+
+    private func hold(_ assertion: inout IOPMAssertionID, type: String) {
+        guard assertion == 0 else { return }
+        let reason = "Pervitin is keeping this Mac awake" as CFString
+        if IOPMAssertionCreateWithName(type as CFString, IOPMAssertionLevel(kIOPMAssertionLevelOn), reason, &assertion) != kIOReturnSuccess {
+            assertion = 0
+        }
+    }
+
+    private func drop(_ assertion: inout IOPMAssertionID) {
+        guard assertion != 0 else { return }
+        IOPMAssertionRelease(assertion)
+        assertion = 0
+    }
+
+    // The display assertion alone does not always hold off the screen saver,
+    // so the idle clock it counts against is reset every 30 seconds. Paused
+    // while the screens sleep or the screen is locked, so a display you put to
+    // sleep yourself stays asleep.
+    private func startActivityPulse() {
+        guard activityTimer == nil, !screensAreAsleep else { return }
+        declareActivity()
+        let timer = Timer(timeInterval: 30, repeats: true) { [weak self] _ in self?.declareActivity() }
+        timer.tolerance = 5
+        RunLoop.main.add(timer, forMode: .common)
+        activityTimer = timer
+    }
+
+    private func stopActivityPulse() {
+        activityTimer?.invalidate()
+        activityTimer = nil
+    }
+
+    private func declareActivity() {
+        IOPMAssertionDeclareUserActivity("Pervitin" as CFString, kIOPMUserActiveLocal, &activityAssertion)
+    }
+
+    // MARK: System events
+
+    @objc private func systemDidWake() {
+        guard isActive, let endDate else { return }
+        endTimer?.invalidate()
+        endTimer = nil
+        if endDate <= Date() {
+            stop()
+        } else {
+            scheduleEnd(at: endDate)
+        }
+    }
+
+    @objc private func screensDidSleep() {
+        screensAreAsleep = true
+        stopActivityPulse()
+    }
+
+    @objc private func screensDidWake() {
+        screensAreAsleep = false
+        if isActive && !displayMaySleep { startActivityPulse() }
+    }
+
+    private func save(_ value: Any, _ key: String) {
+        UserDefaults.standard.set(value, forKey: key)
+    }
+}
+
+enum Clock {
+    // 1:42:10 or 42:10
+    static func long(_ seconds: TimeInterval) -> String {
+        let total = Int(seconds.rounded(.up))
+        let hours = total / 3600, minutes = total % 3600 / 60, secs = total % 60
+        return hours > 0
+            ? String(format: "%d:%02d:%02d", hours, minutes, secs)
+            : String(format: "%d:%02d", minutes, secs)
+    }
+
+    // 1:42 or 42m, for the menu bar
+    static func short(_ seconds: TimeInterval) -> String {
+        let minutes = Int((seconds / 60).rounded(.up))
+        return minutes >= 60 ? String(format: "%d:%02d", minutes / 60, minutes % 60) : "\(minutes)m"
+    }
+}
