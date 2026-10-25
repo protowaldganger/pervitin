@@ -18,7 +18,7 @@ No network access, no analytics, no statistics, sandboxed. It holds the same pow
 
 ## Install
 
-1. Download `Pervitin.zip` from Releases, unzip it and drag Pervitin into Applications.
+1. Download `Pervitin.dmg` from Releases, open it and drag Pervitin onto Applications.
 2. Open it. macOS warns that it cannot verify the developer, because the app is not notarized. Open System Settings › Privacy & Security, scroll down and click Open Anyway.
 
 ## Build

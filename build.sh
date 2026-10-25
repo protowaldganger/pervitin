@@ -1,5 +1,5 @@
 #!/bin/zsh
-# Builds Pervitin.app and Pervitin.zip into ./build. Needs Xcode (for swiftc
+# Builds Pervitin.app and Pervitin.dmg into ./build. Needs Xcode (for swiftc
 # and the macOS SDK); no Xcode project, no dependencies.
 set -euo pipefail
 cd "${0:A:h}"
@@ -29,6 +29,5 @@ iconutil -c icns Resources/AppIcon.iconset -o "$APP/Contents/Resources/AppIcon.i
 codesign --force --sign - --options runtime \
   --entitlements Resources/Pervitin.entitlements "$APP"
 
-ditto -c -k --norsrc --keepParent "$APP" build/Pervitin.zip
 echo "Built $(du -sh "$APP" | cut -f1)  $APP"
-echo "Zipped $(du -sh build/Pervitin.zip | cut -f1)  build/Pervitin.zip"
+zsh make-dmg.sh "$APP" build/Pervitin.dmg
