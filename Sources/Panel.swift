@@ -48,8 +48,10 @@ struct Panel: View {
         }
         .padding(20)
         .frame(width: 320)
-        .animation(Style.slide, value: session.isActive)
-        .animation(Style.slide, value: session.untilEnabled)
+        // Pinned to the top. When a row appears the popover grows downward;
+        // centred content would bob up and back while it catches up.
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(maxHeight: .infinity, alignment: .top)
     }
 
     // MARK: Parts
@@ -107,12 +109,17 @@ struct Panel: View {
         }
         .padding(2)
         .background(Capsule().fill(Style.track))
+        // The one thing that moves: the grey sliding to the running length.
+        .animation(Style.slide, value: chipSelectionKey)
+    }
+
+    private var chipSelectionKey: String {
+        guard session.untilEnabled || session.isActive else { return "none" }
+        return session.untilEnabled ? "until" : "\(session.presetMinutes)"
     }
 
     private func chip(_ label: String, selected: Bool, spoken: String, action: @escaping () -> Void) -> some View {
-        Button {
-            withAnimation(Style.slide) { action() }
-        } label: {
+        Button(action: action) {
             Text(label)
                 .font(.system(size: 12, weight: selected ? .semibold : .regular).monospacedDigit())
                 .foregroundColor(selected ? .primary : .secondary)
@@ -144,18 +151,14 @@ struct Panel: View {
                 bigButton("Wach bleiben", primary: true) { session.beginUntil() }
             }
         }
-        .transition(.opacity.combined(with: .move(edge: .top)))
     }
 
     private var stopButton: some View {
         bigButton("Schlafen lassen", primary: false) { session.stop() }
-            .transition(.opacity)
     }
 
     private func bigButton(_ title: String, primary: Bool, action: @escaping () -> Void) -> some View {
-        Button {
-            withAnimation(Style.slide) { action() }
-        } label: {
+        Button(action: action) {
             Text(title)
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundColor(primary ? Style.canvas : .primary)
