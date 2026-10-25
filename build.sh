@@ -15,6 +15,7 @@ for arch in arm64 x86_64; do
     -target $arch-apple-macos13.0 -swift-version 5 \
     -module-name Pervitin -Osize -wmo -parse-as-library \
     -file-prefix-map "$PWD=." \
+    -Xlinker -dead_strip -Xlinker -dead_strip_dylibs \
     -o build/Pervitin-$arch
 done
 xcrun lipo -create build/Pervitin-arm64 build/Pervitin-x86_64 -output "$APP/Contents/MacOS/Pervitin"
@@ -23,7 +24,7 @@ xcrun strip "$APP/Contents/MacOS/Pervitin"
 
 cp Resources/Info.plist "$APP/Contents/Info.plist"
 printf 'APPL????' > "$APP/Contents/PkgInfo"
-iconutil -c icns Resources/AppIcon.iconset -o "$APP/Contents/Resources/AppIcon.icns"
+cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 
 # Ad-hoc signature, sandboxed, hardened runtime. No developer identity.
 codesign --force --sign - --options runtime \

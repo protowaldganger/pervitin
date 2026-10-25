@@ -61,6 +61,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if popover.isShown {
             popover.performClose(sender)
         } else {
+            session.refreshLoginItem()
             NSApp.activate(ignoringOtherApps: true)
             popover.show(relativeTo: sender.bounds, of: sender, preferredEdge: .minY)
         }

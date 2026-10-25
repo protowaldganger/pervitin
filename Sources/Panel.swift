@@ -40,7 +40,7 @@ struct Panel: View {
             VStack(spacing: 8) {
                 option("Let the display sleep", $session.displayMaySleep)
                 option("Open at login", Binding(get: { session.opensAtLogin },
-                                                set: { session.opensAtLogin = $0 }))
+                                                set: { session.setOpensAtLogin($0) }))
                 option("Check for updates", Binding(get: { updates.isEnabled },
                                                     set: { updates.isEnabled = $0 }))
             }

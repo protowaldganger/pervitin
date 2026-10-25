@@ -51,20 +51,26 @@ final class Session: NSObject, ObservableObject {
         return total > 0 ? min(1, max(0, endDate.timeIntervalSinceNow / total)) : 0
     }
 
-    var opensAtLogin: Bool {
-        get { SMAppService.mainApp.status == .enabled }
-        set {
-            objectWillChange.send()
-            do {
-                if newValue {
-                    try SMAppService.mainApp.register()
-                } else {
-                    try SMAppService.mainApp.unregister()
-                }
-            } catch {
-                NSSound.beep()
+    // Asking macOS for the login item's status is a round trip to a system
+    // service, so it is read when the panel opens, not on every redraw.
+    @Published private(set) var opensAtLogin = false
+
+    func refreshLoginItem() {
+        let enabled = SMAppService.mainApp.status == .enabled
+        if enabled != opensAtLogin { opensAtLogin = enabled }
+    }
+
+    func setOpensAtLogin(_ wanted: Bool) {
+        do {
+            if wanted {
+                try SMAppService.mainApp.register()
+            } else {
+                try SMAppService.mainApp.unregister()
             }
+        } catch {
+            NSSound.beep()
         }
+        refreshLoginItem()
     }
 
     private var systemAssertion: IOPMAssertionID = 0
