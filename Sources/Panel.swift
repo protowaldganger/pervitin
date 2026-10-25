@@ -51,7 +51,7 @@ struct Panel: View {
     private var header: some View {
         HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: 3) {
-                Text(session.isActive ? "Awake" : "Off")
+                Text(session.isActive ? "Wach" : "Aus")
                     .font(.system(size: 24, weight: .semibold))
                 status
             }
@@ -126,7 +126,7 @@ struct Panel: View {
         Button {
             withAnimation(Self.slide) { session.toggle() }
         } label: {
-            Text(session.isActive ? "Let it sleep" : "Keep awake")
+            Text(session.isActive ? "Schlafen lassen" : "Wach bleiben")
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundColor(session.isActive ? .primary : Color(nsColor: .windowBackgroundColor))
                 .frame(maxWidth: .infinity, minHeight: 38)

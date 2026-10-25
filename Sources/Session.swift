@@ -227,9 +227,9 @@ enum Clock {
             : String(format: "%d:%02d", minutes, secs)
     }
 
-    // 1:42 or 42m, for the menu bar
+    // 1:42 or 0:15, for the menu bar. Always h:mm, so the width stays put.
     static func short(_ seconds: TimeInterval) -> String {
         let minutes = Int((seconds / 60).rounded(.up))
-        return minutes >= 60 ? String(format: "%d:%02d", minutes / 60, minutes % 60) : "\(minutes)m"
+        return String(format: "%d:%02d", minutes / 60, minutes % 60)
     }
 }

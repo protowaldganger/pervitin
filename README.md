@@ -6,7 +6,7 @@ Made by protowaldganger.
 
 ## Use
 
-- Click the tube in the menu bar, pick a length (15 minutes to 8 hours, until a time, or until you stop it) and press Keep awake.
+- Click the tube in the menu bar, pick a length (15 minutes to 8 hours, until a time, or until you stop it) and press Wach bleiben.
 - Right-click the tube to start or stop instantly with the last length you picked.
 - By default the display stays on and the screen saver stays away. Turn on "Let the display sleep" to keep only the Mac itself awake.
 
