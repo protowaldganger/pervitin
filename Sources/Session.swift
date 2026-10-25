@@ -16,18 +16,19 @@ final class Session: NSObject, ObservableObject {
     @Published private(set) var isActive = false
     // nil while active means "until stopped".
     @Published private(set) var endDate: Date?
+    private(set) var startDate: Date?
 
-    // How long the next session lasts: minutes from now (0 = until stopped),
-    // or a time of day when `untilEnabled` is on. Changing either while a
-    // session runs restarts it with the new length.
-    @Published var presetMinutes: Int {
-        didSet { save(presetMinutes, "presetMinutes"); restartIfActive() }
+    // How long a session lasts: minutes from now (0 = until stopped), or a
+    // time of day when `untilEnabled` is on. Right-click starts with these.
+    @Published private(set) var presetMinutes: Int {
+        didSet { save(presetMinutes, "presetMinutes") }
     }
     @Published var untilEnabled: Bool {
-        didSet { save(untilEnabled, "untilEnabled"); restartIfActive() }
+        didSet { save(untilEnabled, "untilEnabled") }
     }
+    // Moving the time during an until-session moves its end.
     @Published var untilTime: Date {
-        didSet { save(untilTime, "untilTime"); if untilEnabled { restartIfActive() } }
+        didSet { save(untilTime, "untilTime"); if untilEnabled && isActive { start() } }
     }
 
     // Off: the display stays on and the screen saver stays away.
@@ -35,14 +36,19 @@ final class Session: NSObject, ObservableObject {
     @Published var displayMaySleep: Bool {
         didSet { save(displayMaySleep, "displayMaySleep"); if isActive { applyAssertions() } }
     }
-    @Published var showsTimeInMenuBar: Bool {
-        didSet { save(showsTimeInMenuBar, "showsTimeInMenuBar"); onChange?() }
-    }
 
     var onChange: (() -> Void)?
 
     var remaining: TimeInterval? {
         endDate.map { max(0, $0.timeIntervalSinceNow) }
+    }
+
+    // How much of the session is left, 1 at the start and 0 at the end; 1
+    // throughout a session without an end. Drives the draining tube.
+    var remainingFraction: Double {
+        guard let endDate, let startDate else { return 1 }
+        let total = endDate.timeIntervalSince(startDate)
+        return total > 0 ? min(1, max(0, endDate.timeIntervalSinceNow / total)) : 0
     }
 
     var opensAtLogin: Bool {
@@ -73,14 +79,12 @@ final class Session: NSObject, ObservableObject {
         defaults.register(defaults: [
             "presetMinutes": 60,
             "untilEnabled": false,
-            "displayMaySleep": false,
-            "showsTimeInMenuBar": false
+            "displayMaySleep": false
         ])
         presetMinutes = defaults.integer(forKey: "presetMinutes")
         untilEnabled = defaults.bool(forKey: "untilEnabled")
         untilTime = (defaults.object(forKey: "untilTime") as? Date) ?? Date().addingTimeInterval(3600)
         displayMaySleep = defaults.bool(forKey: "displayMaySleep")
-        showsTimeInMenuBar = defaults.bool(forKey: "showsTimeInMenuBar")
         super.init()
 
         let workspace = NSWorkspace.shared.notificationCenter
@@ -98,10 +102,24 @@ final class Session: NSObject, ObservableObject {
         isActive ? stop() : start()
     }
 
+    // One click: start (or restart) for this many minutes, 0 for no end.
+    func begin(minutes: Int) {
+        untilEnabled = false
+        presetMinutes = minutes
+        start()
+    }
+
+    func beginUntil() {
+        untilEnabled = true
+        start()
+    }
+
     func start() {
         endTimer?.invalidate()
         endTimer = nil
-        endDate = plannedEnd(from: Date())
+        let now = Date()
+        startDate = now
+        endDate = plannedEnd(from: now)
         isActive = true
         applyAssertions()
         if let endDate { scheduleEnd(at: endDate) }
@@ -117,11 +135,8 @@ final class Session: NSObject, ObservableObject {
         drop(&activityAssertion)
         isActive = false
         endDate = nil
+        startDate = nil
         onChange?()
-    }
-
-    private func restartIfActive() {
-        if isActive { start() }
     }
 
     private func plannedEnd(from now: Date) -> Date? {
@@ -227,9 +242,4 @@ enum Clock {
             : String(format: "%d:%02d", minutes, secs)
     }
 
-    // 1:42 or 0:15, for the menu bar. Always h:mm, so the width stays put.
-    static func short(_ seconds: TimeInterval) -> String {
-        let minutes = Int((seconds / 60).rounded(.up))
-        return String(format: "%d:%02d", minutes / 60, minutes % 60)
-    }
 }

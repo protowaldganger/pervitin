@@ -2,8 +2,8 @@
 //  Panel.swift
 //  Pervitin
 //
-//  The popover. One choice, one button, three switches; the grey slides to
-//  what you pick.
+//  The popover. Tap a length and the Mac stays awake; the grey slides to
+//  what is running. One button to stop, three switches, the shared footer.
 //
 
 import AppKit
@@ -11,39 +11,45 @@ import SwiftUI
 
 struct Panel: View {
     @ObservedObject var session: Session
+    @ObservedObject var updates = UpdateCheck.shared
     @Namespace var chipSelection
-
-    private static let slide = Animation.spring(response: 0.3, dampingFraction: 0.86)
 
     private struct Preset {
         let minutes: Int
         let label: String
+        let spoken: String
     }
 
     private static let presets = [
-        Preset(minutes: 15, label: "15m"), Preset(minutes: 30, label: "30m"),
-        Preset(minutes: 60, label: "1h"), Preset(minutes: 120, label: "2h"),
-        Preset(minutes: 240, label: "4h"), Preset(minutes: 480, label: "8h"),
-        Preset(minutes: 0, label: "∞")
+        Preset(minutes: 15, label: "15m", spoken: "15 minutes"),
+        Preset(minutes: 30, label: "30m", spoken: "30 minutes"),
+        Preset(minutes: 60, label: "1h", spoken: "1 hour"),
+        Preset(minutes: 120, label: "2h", spoken: "2 hours"),
+        Preset(minutes: 240, label: "4h", spoken: "4 hours"),
+        Preset(minutes: 480, label: "8h", spoken: "8 hours"),
+        Preset(minutes: 0, label: "∞", spoken: "Until stopped")
     ]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             header
             chips
-            until
-            mainButton
-            Rectangle().fill(Color.primary.opacity(0.08)).frame(height: 1)
+            if session.untilEnabled { until }
+            if session.isActive { stopButton }
+            Rectangle().fill(Style.hairline).frame(height: 1)
             VStack(spacing: 8) {
                 option("Let the display sleep", $session.displayMaySleep)
-                option("Show time in menu bar", $session.showsTimeInMenuBar)
                 option("Open at login", Binding(get: { session.opensAtLogin },
                                                 set: { session.opensAtLogin = $0 }))
+                option("Check for updates", Binding(get: { updates.isEnabled },
+                                                    set: { updates.isEnabled = $0 }))
             }
-            footer
+            MakerFooter(name: "Pervitin", updates: updates)
         }
         .padding(20)
-        .frame(width: 296)
+        .frame(width: 320)
+        .animation(Style.slide, value: session.isActive)
+        .animation(Style.slide, value: session.untilEnabled)
     }
 
     // MARK: Parts
@@ -52,12 +58,12 @@ struct Panel: View {
         HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: 3) {
                 Text(session.isActive ? "Wach" : "Aus")
-                    .font(.system(size: 24, weight: .semibold))
+                    .font(Style.title)
                 status
             }
             Spacer()
             Circle()
-                .fill(session.isActive ? Color.green : Color.primary.opacity(0.18))
+                .fill(session.isActive ? Color.green : Style.track)
                 .frame(width: 8, height: 8)
                 .padding(.top, 10)
         }
@@ -73,64 +79,88 @@ struct Panel: View {
             .font(.system(size: 12).monospacedDigit())
             .foregroundColor(.secondary)
         } else {
-            Text(session.isActive ? "Until you stop it" : "Pick how long, then start")
+            Text(session.isActive ? "Until you stop it"
+                 : session.untilEnabled ? "Pick a time, then start" : "Tap a length to start")
                 .font(.system(size: 12))
                 .foregroundColor(.secondary)
         }
     }
 
+    // Tapping a length starts at once, or restarts with the new length.
+    // "Until" opens the time row instead.
     private var chips: some View {
         HStack(spacing: 2) {
             ForEach(Self.presets, id: \.minutes) { preset in
-                let selected = !session.untilEnabled && session.presetMinutes == preset.minutes
-                Button {
-                    withAnimation(Self.slide) {
-                        session.untilEnabled = false
-                        session.presetMinutes = preset.minutes
-                    }
-                } label: {
-                    Text(preset.label)
-                        .font(.system(size: 12, weight: selected ? .semibold : .regular).monospacedDigit())
-                        .foregroundColor(selected ? .primary : .secondary)
-                        .frame(maxWidth: .infinity, minHeight: 26)
-                        .background {
-                            if selected {
-                                Capsule()
-                                    .fill(Color(nsColor: .controlBackgroundColor))
-                                    .shadow(color: .black.opacity(0.12), radius: 1, x: 0, y: 1)
-                                    .matchedGeometryEffect(id: "chip", in: chipSelection)
-                            }
-                        }
-                        .contentShape(Capsule())
+                chip(preset.label,
+                     selected: session.isActive && !session.untilEnabled && session.presetMinutes == preset.minutes,
+                     spoken: preset.spoken) {
+                    session.begin(minutes: preset.minutes)
                 }
-                .buttonStyle(.plain)
+            }
+            chip("Until", selected: session.untilEnabled, spoken: "Until a time") {
+                if session.isActive {
+                    if !session.untilEnabled { session.beginUntil() }
+                } else {
+                    session.untilEnabled.toggle()
+                }
             }
         }
         .padding(2)
-        .background(Capsule().fill(Color.primary.opacity(0.07)))
+        .background(Capsule().fill(Style.track))
+    }
+
+    private func chip(_ label: String, selected: Bool, spoken: String, action: @escaping () -> Void) -> some View {
+        Button {
+            withAnimation(Style.slide) { action() }
+        } label: {
+            Text(label)
+                .font(.system(size: 12, weight: selected ? .semibold : .regular).monospacedDigit())
+                .foregroundColor(selected ? .primary : .secondary)
+                .frame(maxWidth: .infinity, minHeight: 26)
+                .background {
+                    if selected {
+                        Capsule()
+                            .fill(Style.raised)
+                            .shadow(color: .black.opacity(0.12), radius: 1, x: 0, y: 1)
+                            .matchedGeometryEffect(id: "chip", in: chipSelection)
+                    }
+                }
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(spoken)
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
     private var until: some View {
-        HStack {
-            Toggle("Until a time", isOn: $session.untilEnabled)
-                .toggleStyle(.checkbox)
-            Spacer()
-            DatePicker("Until", selection: $session.untilTime, displayedComponents: .hourAndMinute)
-                .labelsHidden()
-                .disabled(!session.untilEnabled)
+        VStack(spacing: 12) {
+            HStack {
+                Text("Awake until").font(Style.body)
+                Spacer()
+                DatePicker("Until", selection: $session.untilTime, displayedComponents: .hourAndMinute)
+                    .labelsHidden()
+            }
+            if !session.isActive {
+                bigButton("Wach bleiben", primary: true) { session.beginUntil() }
+            }
         }
-        .font(.system(size: 13))
+        .transition(.opacity.combined(with: .move(edge: .top)))
     }
 
-    private var mainButton: some View {
+    private var stopButton: some View {
+        bigButton("Schlafen lassen", primary: false) { session.stop() }
+            .transition(.opacity)
+    }
+
+    private func bigButton(_ title: String, primary: Bool, action: @escaping () -> Void) -> some View {
         Button {
-            withAnimation(Self.slide) { session.toggle() }
+            withAnimation(Style.slide) { action() }
         } label: {
-            Text(session.isActive ? "Schlafen lassen" : "Wach bleiben")
+            Text(title)
                 .font(.system(size: 14, weight: .semibold))
-                .foregroundColor(session.isActive ? .primary : Color(nsColor: .windowBackgroundColor))
+                .foregroundColor(primary ? Style.canvas : .primary)
                 .frame(maxWidth: .infinity, minHeight: 38)
-                .background(Capsule().fill(session.isActive ? Color.primary.opacity(0.08) : Color.primary))
+                .background(Capsule().fill(primary ? Color.primary : Style.track))
                 .contentShape(Capsule())
         }
         .buttonStyle(.plain)
@@ -139,24 +169,12 @@ struct Panel: View {
 
     private func option(_ title: String, _ isOn: Binding<Bool>) -> some View {
         HStack {
-            Text(title).font(.system(size: 13))
+            Text(title).font(Style.body)
             Spacer()
             Toggle(title, isOn: isOn)
                 .toggleStyle(.switch)
                 .controlSize(.small)
                 .labelsHidden()
         }
-    }
-
-    private var footer: some View {
-        HStack {
-            Text("Pervitin " + (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""))
-            Spacer()
-            Button("Quit") { NSApp.terminate(nil) }
-                .buttonStyle(.plain)
-                .keyboardShortcut("q")
-        }
-        .font(.system(size: 11))
-        .foregroundColor(.secondary)
     }
 }
