@@ -12,7 +12,7 @@ import SwiftUI
 struct Panel: View {
     @ObservedObject var session: Session
     @ObservedObject var updates = UpdateCheck.shared
-    @Namespace var chipSelection
+    @State var pill: Int?
 
     private struct Preset {
         let minutes: Int
@@ -90,16 +90,27 @@ struct Panel: View {
 
     // Tapping a length starts at once, or restarts with the new length.
     // "Until" opens the time row instead.
+    // Index of the running length (the last slot is Until), or nil.
+    private var selectedIndex: Int? {
+        if session.untilEnabled { return Self.presets.count }
+        guard session.isActive else { return nil }
+        return Self.presets.firstIndex { $0.minutes == session.presetMinutes }
+    }
+
+    // The track and the labels never move. Only the grey pill slides, and it
+    // is its own layer driven by `pill`, so animating it cannot touch anything
+    // else in the panel. Appearing or disappearing is instant; it slides only
+    // from one length to another.
     private var chips: some View {
-        HStack(spacing: 2) {
-            ForEach(Self.presets, id: \.minutes) { preset in
-                chip(preset.label,
-                     selected: session.isActive && !session.untilEnabled && session.presetMinutes == preset.minutes,
-                     spoken: preset.spoken) {
+        let slots = Self.presets.count + 1
+        return HStack(spacing: 2) {
+            ForEach(Self.presets.indices, id: \.self) { index in
+                let preset = Self.presets[index]
+                chip(preset.label, selected: selectedIndex == index, spoken: preset.spoken) {
                     session.begin(minutes: preset.minutes)
                 }
             }
-            chip("Until", selected: session.untilEnabled, spoken: "Until a time") {
+            chip("Until", selected: selectedIndex == slots - 1, spoken: "Until a time") {
                 if session.isActive {
                     if !session.untilEnabled { session.beginUntil() }
                 } else {
@@ -108,14 +119,29 @@ struct Panel: View {
             }
         }
         .padding(2)
-        .background(Capsule().fill(Style.track))
-        // The one thing that moves: the grey sliding to the running length.
-        .animation(Style.slide, value: chipSelectionKey)
-    }
-
-    private var chipSelectionKey: String {
-        guard session.untilEnabled || session.isActive else { return "none" }
-        return session.untilEnabled ? "until" : "\(session.presetMinutes)"
+        .background {
+            GeometryReader { geometry in
+                let slot = (geometry.size.width - 4 - CGFloat(slots - 1) * 2) / CGFloat(slots)
+                ZStack(alignment: .leading) {
+                    Capsule().fill(Style.track)
+                    if let pill {
+                        Capsule()
+                            .fill(Style.raised)
+                            .shadow(color: .black.opacity(0.12), radius: 1, x: 0, y: 1)
+                            .frame(width: slot, height: 26)
+                            .offset(x: 2 + CGFloat(pill) * (slot + 2))
+                    }
+                }
+            }
+        }
+        .onAppear { pill = selectedIndex }
+        .onChange(of: selectedIndex) { index in
+            if pill != nil && index != nil {
+                withAnimation(Style.slide) { pill = index }
+            } else {
+                pill = index
+            }
+        }
     }
 
     private func chip(_ label: String, selected: Bool, spoken: String, action: @escaping () -> Void) -> some View {
@@ -124,14 +150,6 @@ struct Panel: View {
                 .font(.system(size: 12, weight: selected ? .semibold : .regular).monospacedDigit())
                 .foregroundColor(selected ? .primary : .secondary)
                 .frame(maxWidth: .infinity, minHeight: 26)
-                .background {
-                    if selected {
-                        Capsule()
-                            .fill(Style.raised)
-                            .shadow(color: .black.opacity(0.12), radius: 1, x: 0, y: 1)
-                            .matchedGeometryEffect(id: "chip", in: chipSelection)
-                    }
-                }
                 .contentShape(Capsule())
         }
         .buttonStyle(.plain)
