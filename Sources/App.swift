@@ -49,7 +49,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        session.stop()
+        session.stop(quietly: true)
     }
 
     @objc private func statusItemClicked(_ sender: NSStatusBarButton) {

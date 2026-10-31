@@ -16,8 +16,9 @@ Requires macOS 13 or later. Universal: Apple silicon and Intel. 448 KB.
 ## Use
 
 - Click the tube in the menu bar and tap a length: 15 minutes to 8 hours, or ∞ until you stop it. It starts at once.
-- For a time of day, tap Until, pick the time and press Wach bleiben.
+- For a time of day, tap Until, pick the time and press Keep awake.
 - The tube drains as the session runs down. Hover it for the exact time left.
+- A short sound plays when it switches on and off. It uses sounds built into macOS, so the app ships none.
 - Right-click the tube to start or stop instantly with the last length you picked.
 - By default the display stays on and the screen saver stays away. Turn on "Let the display sleep" to keep only the Mac itself awake.
 

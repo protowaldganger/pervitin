@@ -59,7 +59,7 @@ struct Panel: View {
     private var header: some View {
         HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: 3) {
-                Text(session.isActive ? "Wach" : "Aus")
+                Text(session.isActive ? "Awake" : "Off")
                     .font(Style.title)
                 status
             }
@@ -148,13 +148,13 @@ struct Panel: View {
                     .labelsHidden()
             }
             if !session.isActive {
-                bigButton("Wach bleiben", primary: true) { session.beginUntil() }
+                bigButton("Keep awake", primary: true) { session.beginUntil() }
             }
         }
     }
 
     private var stopButton: some View {
-        bigButton("Schlafen lassen", primary: false) { session.stop() }
+        bigButton("Let it sleep", primary: false) { session.stop() }
     }
 
     private func bigButton(_ title: String, primary: Bool, action: @escaping () -> Void) -> some View {

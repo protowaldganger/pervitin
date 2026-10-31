@@ -121,6 +121,9 @@ final class Session: NSObject, ObservableObject {
     }
 
     func start() {
+        // Only a switch from off to on is announced; changing the length of a
+        // running session is not.
+        if !isActive { Chime.on() }
         endTimer?.invalidate()
         endTimer = nil
         let now = Date()
@@ -132,7 +135,8 @@ final class Session: NSObject, ObservableObject {
         onChange?()
     }
 
-    func stop() {
+    func stop(quietly: Bool = false) {
+        if isActive && !quietly { Chime.off() }
         endTimer?.invalidate()
         endTimer = nil
         stopActivityPulse()
@@ -248,4 +252,11 @@ enum Clock {
             : String(format: "%d:%02d", minutes, secs)
     }
 
+}
+
+// macOS's own alert sounds, from /System/Library/Sounds, so the app ships no
+// audio. They follow the Sound settings, including the alert volume.
+private enum Chime {
+    static func on() { NSSound(named: NSSound.Name("Hero"))?.play() }
+    static func off() { NSSound(named: NSSound.Name("Bottle"))?.play() }
 }
