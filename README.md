@@ -11,7 +11,7 @@ Made by protowaldganger.
 1. Download `Pervitin.dmg` from [the latest release](../../releases/latest), open it and drag Pervitin onto Applications.
 2. Open it. macOS warns that it cannot verify the developer, because the app is not notarized. Open System Settings › Privacy & Security, scroll down and click Open Anyway.
 
-Requires macOS 13 or later. Universal: Apple silicon and Intel. 448 KB.
+Requires macOS 13 or later. Universal: Apple silicon and Intel. 644 KB.
 
 ## Use
 
@@ -21,6 +21,8 @@ Requires macOS 13 or later. Universal: Apple silicon and Intel. 448 KB.
 - A short sound plays when it switches on and off. It uses sounds built into macOS, so the app ships none.
 - Right-click the tube to start or stop instantly with the last length you picked.
 - By default the display stays on and the screen saver stays away. Turn on "Let the display sleep" to keep only the Mac itself awake.
+
+- On a MacBook, a session ends by itself when the battery falls below 20% while unplugged, so it never runs your Mac flat. Pick 10, 20, 30 or 50%, or turn it off. A session you start while already below that level runs as asked.
 
 Closing the lid still puts a MacBook to sleep, as macOS intends.
 

@@ -3,7 +3,7 @@
 //  Pervitin
 //
 //  The popover. Tap a length and the Mac stays awake; the grey slides to
-//  what is running. One button to stop, three switches, the shared footer.
+//  what is running. One button to stop, a few switches, the shared footer.
 //
 
 import AppKit
@@ -39,6 +39,7 @@ struct Panel: View {
             Rectangle().fill(Style.hairline).frame(height: 1)
             VStack(spacing: 8) {
                 option("Let the display sleep", $session.displayMaySleep)
+                if session.hasBattery { lowBattery }
                 option("Open at login", Binding(get: { session.opensAtLogin },
                                                 set: { session.setOpensAtLogin($0) }))
                 option("Check for updates", Binding(get: { updates.isEnabled },
@@ -52,6 +53,7 @@ struct Panel: View {
         // centred content would bob up and back while it catches up.
         .fixedSize(horizontal: false, vertical: true)
         .frame(maxHeight: .infinity, alignment: .top)
+        .tint(Style.accent)
     }
 
     // MARK: Parts
@@ -64,9 +66,7 @@ struct Panel: View {
                 status
             }
             Spacer()
-            Circle()
-                .fill(session.isActive ? Color.green : Style.track)
-                .frame(width: 8, height: 8)
+            StatusDot(tone: session.isActive ? .on : .off)
                 .padding(.top, 10)
         }
     }
@@ -186,6 +186,27 @@ struct Panel: View {
         }
         .buttonStyle(.plain)
         .keyboardShortcut(.defaultAction)
+    }
+
+    // "Stop below 20% battery", with the level in a small pop-up.
+    private var lowBattery: some View {
+        HStack(spacing: 4) {
+            Text("Stop below").font(Style.body)
+            Picker("Battery level", selection: $session.lowBatteryLevel) {
+                ForEach(Session.lowBatteryChoices, id: \.self) { Text("\($0)%").tag($0) }
+            }
+            .pickerStyle(.menu)
+            .controlSize(.small)
+            .fixedSize()
+            .labelsHidden()
+            .disabled(!session.stopsOnLowBattery)
+            Text("battery").font(Style.body)
+            Spacer()
+            Toggle("Stop on low battery", isOn: $session.stopsOnLowBattery)
+                .toggleStyle(.switch)
+                .controlSize(.small)
+                .labelsHidden()
+        }
     }
 
     private func option(_ title: String, _ isOn: Binding<Bool>) -> some View {

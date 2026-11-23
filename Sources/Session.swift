@@ -4,6 +4,7 @@
 //
 
 import AppKit
+import IOKit.ps
 import IOKit.pwr_mgt
 import ServiceManagement
 
@@ -36,6 +37,17 @@ final class Session: NSObject, ObservableObject {
     @Published var displayMaySleep: Bool {
         didSet { save(displayMaySleep, "displayMaySleep"); if isActive { applyAssertions() } }
     }
+
+    // On battery, a session ends by itself once the charge falls below this.
+    // Not when it was started below it: then you asked for it knowingly.
+    @Published var stopsOnLowBattery: Bool {
+        didSet { save(stopsOnLowBattery, "stopsOnLowBattery") }
+    }
+    @Published var lowBatteryLevel: Int {
+        didSet { save(lowBatteryLevel, "lowBatteryLevel") }
+    }
+    static let lowBatteryChoices = [10, 20, 30, 50]
+    let hasBattery = Battery.read() != nil
 
     var onChange: (() -> Void)?
 
@@ -78,6 +90,8 @@ final class Session: NSObject, ObservableObject {
     private var activityAssertion: IOPMAssertionID = 0
     private var endTimer: Timer?
     private var activityTimer: Timer?
+    private var batteryTimer: Timer?
+    private var startedBelowLevel = false
     private var screensAreAsleep = false
 
     private override init() {
@@ -85,12 +99,16 @@ final class Session: NSObject, ObservableObject {
         defaults.register(defaults: [
             "presetMinutes": 60,
             "untilEnabled": false,
-            "displayMaySleep": false
+            "displayMaySleep": false,
+            "stopsOnLowBattery": true,
+            "lowBatteryLevel": 20
         ])
         presetMinutes = defaults.integer(forKey: "presetMinutes")
         untilEnabled = defaults.bool(forKey: "untilEnabled")
         untilTime = (defaults.object(forKey: "untilTime") as? Date) ?? Date().addingTimeInterval(3600)
         displayMaySleep = defaults.bool(forKey: "displayMaySleep")
+        stopsOnLowBattery = defaults.bool(forKey: "stopsOnLowBattery")
+        lowBatteryLevel = defaults.integer(forKey: "lowBatteryLevel")
         super.init()
 
         let workspace = NSWorkspace.shared.notificationCenter
@@ -123,7 +141,10 @@ final class Session: NSObject, ObservableObject {
     func start() {
         // Only a switch from off to on is announced; changing the length of a
         // running session is not.
-        if !isActive { Chime.on() }
+        if !isActive {
+            Chime.on()
+            startedBelowLevel = Battery.read().map { $0.onBattery && $0.percent < lowBatteryLevel } ?? false
+        }
         endTimer?.invalidate()
         endTimer = nil
         let now = Date()
@@ -132,6 +153,7 @@ final class Session: NSObject, ObservableObject {
         isActive = true
         applyAssertions()
         if let endDate { scheduleEnd(at: endDate) }
+        watchBattery()
         onChange?()
     }
 
@@ -140,6 +162,8 @@ final class Session: NSObject, ObservableObject {
         endTimer?.invalidate()
         endTimer = nil
         stopActivityPulse()
+        batteryTimer?.invalidate()
+        batteryTimer = nil
         drop(&systemAssertion)
         drop(&displayAssertion)
         drop(&activityAssertion)
@@ -214,6 +238,27 @@ final class Session: NSObject, ObservableObject {
         IOPMAssertionDeclareUserActivity("Pervitin" as CFString, kIOPMUserActiveLocal, &activityAssertion)
     }
 
+    // MARK: Battery
+
+    // Once a minute is enough: a battery loses about a percent every few minutes.
+    private func watchBattery() {
+        guard hasBattery, batteryTimer == nil else { return }
+        let timer = Timer(timeInterval: 60, repeats: true) { [weak self] _ in self?.checkBattery() }
+        timer.tolerance = 10
+        RunLoop.main.add(timer, forMode: .common)
+        batteryTimer = timer
+    }
+
+    private func checkBattery() {
+        guard isActive, stopsOnLowBattery, let battery = Battery.read() else { return }
+        if !battery.onBattery {
+            // Charging again: the next drop below the level counts.
+            startedBelowLevel = false
+        } else if battery.percent < lowBatteryLevel && !startedBelowLevel {
+            stop()
+        }
+    }
+
     // MARK: System events
 
     @objc private func systemDidWake() {
@@ -252,6 +297,24 @@ enum Clock {
             : String(format: "%d:%02d", minutes, secs)
     }
 
+}
+
+// The internal battery's charge, read from the same public power-source
+// information the battery menu uses. nil on a Mac without a battery.
+enum Battery {
+    static func read() -> (percent: Int, onBattery: Bool)? {
+        guard let info = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
+              let list = IOPSCopyPowerSourcesList(info)?.takeRetainedValue() as? [CFTypeRef] else { return nil }
+        let providing = IOPSGetProvidingPowerSourceType(info)?.takeUnretainedValue() as String?
+        for source in list {
+            guard let description = IOPSGetPowerSourceDescription(info, source)?.takeUnretainedValue() as? [String: Any],
+                  description[kIOPSTypeKey] as? String == kIOPSInternalBatteryType,
+                  let current = description[kIOPSCurrentCapacityKey] as? Int,
+                  let maximum = description[kIOPSMaxCapacityKey] as? Int, maximum > 0 else { continue }
+            return (current * 100 / maximum, providing == kIOPSBatteryPowerValue)
+        }
+        return nil
+    }
 }
 
 // macOS's own alert sounds, from /System/Library/Sounds, so the app ships no
